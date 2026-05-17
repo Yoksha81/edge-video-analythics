@@ -4,6 +4,11 @@ import pandas as pd
 import numpy as np
 from scipy import ndimage
 from timeit import default_timer as timer
+from skimage import io,color
+import matplotlib
+matplotlib.use("TkAgg")   # bitno: pre import pyplot
+import matplotlib.pyplot as plt
+from roipoly import RoiPoly
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -11,19 +16,37 @@ VIDEO_PATH = ROOT / "data" / "raw_videos"
 OUT_PATH = ROOT / "data" / "processed" / "analiza_videa.csv"
 VIDEO_EXTENSIONS = {".mp4", ".mkv", ".mov", ".avi"}
 
-def analiza_svih_videa(video_folder):
-    rezultati = []
-    for video_path in video_folder.iterdir():
+def roi_maska(video_path):
+    filename = video_path.name
+    capture = cv2.VideoCapture(str(video_path))
 
-        if video_path.suffix.lower() not in VIDEO_EXTENSIONS:
-            continue
-        row = analiza_jednog_videa(video_path)
-        if row is not None:
-            rezultati.append(row)
+    if not capture.isOpened():
+        print(f"Video {filename} nece da se otvori.")
+        return None
 
-    return rezultati
+    ret, frame = capture.read()
 
-def analiza_jednog_videa(video_path):
+    if not ret:
+        print(f"Ne moze da se ucita frejm")
+        return None
+
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+    plt.figure(figsize=(15,15))
+    plt.imshow(gray)
+    plt.axis('off')
+
+    my_roi = RoiPoly(color='r')
+    maska = my_roi.get_mask(gray)
+
+    plt.figure()
+    plt.imshow(maska)
+    plt.show()
+
+    return maska
+
+
+def analiza_jednog_videa(video_path, maska):
 
     filename = video_path.name
     cap = cv2.VideoCapture(str(video_path))
@@ -60,7 +83,7 @@ def analiza_jednog_videa(video_path):
         if not ret:
             break
 
-        sivi_frejm = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        sivi_frejm = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) * maska
 
         if k % step == 0:
             laplasian_variance.append(np.var(ndimage.convolve(sivi_frejm.astype('float'),L,mode='mirror')))
@@ -103,9 +126,25 @@ def analiza_jednog_videa(video_path):
     cap.release()
     return row
 
+
+def analiza_svih_videa(video_folder, maska):
+    rezultati = []
+    for video_path in video_folder.iterdir():
+
+        if video_path.suffix.lower() not in VIDEO_EXTENSIONS:
+            continue
+        row = analiza_jednog_videa(video_path, maska)
+        if row is not None:
+            rezultati.append(row)
+
+    return rezultati
+
+
 def main():
     start_time = timer()
-    rezultati = analiza_svih_videa(VIDEO_PATH)
+    video = VIDEO_PATH / "bez_pokreta1.mp4"
+    maska = roi_maska(video)
+    rezultati = analiza_svih_videa(VIDEO_PATH, maska)
     df = pd.DataFrame(rezultati)
     OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(OUT_PATH, index=False)
